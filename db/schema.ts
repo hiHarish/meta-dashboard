@@ -18,7 +18,7 @@ export const leads = pgTable(
     metaLeadId: varchar("meta_lead_id", { length: 255 }),
 
     name: varchar("name", { length: 255 }).notNull(),
-    phone: varchar("phone", { length: 30 }).notNull(),
+    phone: varchar("phone", { length: 255 }).notNull(),
     email: varchar("email", { length: 255 }),
 
     campaign: varchar("campaign", { length: 255 }),
