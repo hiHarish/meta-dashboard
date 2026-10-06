@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
 type Lead = {
@@ -27,6 +27,13 @@ type LeadForm = {
   status: string;
 };
 
+type Stats = {
+  total: number;
+  today: number;
+  interested: number;
+  bookings: number;
+};
+
 const statuses = [
   "new",
   "contacted",
@@ -42,7 +49,7 @@ const statusLabels: Record<string, string> = {
   contacted: "Contacted",
   interested: "Interested",
   follow_up: "Follow Up",
-  converted: "Converted",
+  converted: "Booking",
   not_interested: "Not Interested",
   invalid: "Invalid",
 };
@@ -97,6 +104,7 @@ export default function DashboardPage() {
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const [search, setSearch] = useState("");
@@ -104,15 +112,23 @@ export default function DashboardPage() {
 
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [totalLeads, setTotalLeads] = useState(0);
+
+  const [stats, setStats] = useState<Stats>({
+    total: 0,
+    today: 0,
+    interested: 0,
+    bookings: 0,
+  });
 
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showView, setShowView] = useState(false);
 
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [form, setForm] = useState<LeadForm>(emptyForm);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(
+    null,
+  );
 
+  const [form, setForm] = useState<LeadForm>(emptyForm);
   const [saving, setSaving] = useState(false);
 
   const role =
@@ -122,65 +138,114 @@ export default function DashboardPage() {
 
   const canDelete = role === "admin" || role === "manager";
 
-  async function loadLeads(targetPage = page) {
-    try {
-      setLoading(true);
-      setError("");
+  const loadLeads = useCallback(
+    async (
+      targetPage = page,
+      background = false,
+    ) => {
+      try {
+        if (background) {
+          setRefreshing(true);
+        } else if (leads.length === 0) {
+          setLoading(true);
+        }
 
-      const params = new URLSearchParams();
+        const params = new URLSearchParams();
 
-      params.set("page", String(targetPage));
-      params.set("limit", "50");
+        params.set("page", String(targetPage));
+        params.set("limit", "50");
 
-      if (search.trim()) {
-        params.set("search", search.trim());
+        if (search.trim()) {
+          params.set("search", search.trim());
+        }
+
+        if (status) {
+          params.set("status", status);
+        }
+
+        const response = await fetch(
+          `/api/leads?${params.toString()}`,
+          {
+            cache: "no-store",
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to load leads");
+        }
+
+        const data = await response.json();
+
+        const loadedLeads = Array.isArray(data)
+          ? data
+          : data.leads || data.data || [];
+
+        setLeads(loadedLeads);
+
+        setTotalPages(
+          Number(data.totalPages) || 1,
+        );
+
+        if (data.stats) {
+          setStats({
+            total: Number(data.stats.total || 0),
+            today: Number(data.stats.today || 0),
+            interested: Number(
+              data.stats.interested || 0,
+            ),
+            bookings: Number(
+              data.stats.bookings || 0,
+            ),
+          });
+        }
+      } catch (err) {
+        console.error(err);
+
+        if (leads.length === 0) {
+          setError("Unable to load leads.");
+        }
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
+    },
+    [page, search, status, leads.length],
+  );
 
-      if (status) {
-        params.set("status", status);
-      }
-
-      const response = await fetch(`/api/leads?${params.toString()}`);
-
-      if (!response.ok) {
-        throw new Error("Failed to load leads");
-      }
-
-      const data = await response.json();
-
-      const loadedLeads = Array.isArray(data)
-        ? data
-        : data.leads || data.data || [];
-
-      setLeads(loadedLeads);
-
-      const total =
-        data.total ??
-        data.count ??
-        data.pagination?.total ??
-        loadedLeads.length;
-
-      const calculatedPages =
-        data.totalPages ??
-        data.pagination?.totalPages ??
-        Math.max(1, Math.ceil(Number(total) / 50));
-
-      setTotalLeads(Number(total));
-      setTotalPages(Number(calculatedPages) || 1);
-    } catch (err) {
-      console.error(err);
-      setError("Unable to load leads.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
+  /*
+   * Initial load + filter/page changes.
+   */
   useEffect(() => {
     if (sessionLoading || !session) return;
 
-    loadLeads(page);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionLoading, session, page, status]);
+    loadLeads(page, false);
+  }, [
+    sessionLoading,
+    session,
+    page,
+    status,
+    loadLeads,
+  ]);
+
+  /*
+   * Background refresh every 30 seconds.
+   *
+   * Existing leads remain visible while the API is loading.
+   */
+  useEffect(() => {
+    if (sessionLoading || !session) return;
+
+    const interval = setInterval(() => {
+      loadLeads(page, true);
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [
+    sessionLoading,
+    session,
+    page,
+    loadLeads,
+  ]);
 
   async function createLead(e: React.FormEvent) {
     e.preventDefault();
@@ -207,18 +272,24 @@ export default function DashboardPage() {
 
       if (!response.ok) {
         const data = await response.json().catch(() => null);
-        throw new Error(data?.error || "Failed to create lead");
+
+        throw new Error(
+          data?.error || "Failed to create lead",
+        );
       }
 
       setShowCreate(false);
       setForm(emptyForm);
       setPage(1);
 
-      await loadLeads(1);
+      await loadLeads(1, true);
     } catch (err) {
       console.error(err);
+
       setError(
-        err instanceof Error ? err.message : "Failed to create lead.",
+        err instanceof Error
+          ? err.message
+          : "Failed to create lead.",
       );
     } finally {
       setSaving(false);
@@ -234,52 +305,67 @@ export default function DashboardPage() {
       setSaving(true);
       setError("");
 
-      const response = await fetch(`/api/leads/${selectedLead.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await fetch(
+        `/api/leads/${selectedLead.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: form.name,
+            phone: form.phone,
+            email: form.email || null,
+            campaign: form.campaign || null,
+            ad: form.ad || null,
+            form: form.form || null,
+            status: form.status,
+          }),
         },
-        body: JSON.stringify({
-          name: form.name,
-          phone: form.phone,
-          email: form.email || null,
-          campaign: form.campaign || null,
-          ad: form.ad || null,
-          form: form.form || null,
-          status: form.status,
-        }),
-      });
+      );
 
       if (!response.ok) {
         const data = await response.json().catch(() => null);
-        throw new Error(data?.error || "Failed to update lead");
+
+        throw new Error(
+          data?.error || "Failed to update lead",
+        );
       }
 
       setShowEdit(false);
       setSelectedLead(null);
 
-      await loadLeads(page);
+      await loadLeads(page, true);
     } catch (err) {
       console.error(err);
+
       setError(
-        err instanceof Error ? err.message : "Failed to update lead.",
+        err instanceof Error
+          ? err.message
+          : "Failed to update lead.",
       );
     } finally {
       setSaving(false);
     }
   }
 
-  async function updateStatus(leadId: number, newStatus: string) {
+  async function updateStatus(
+    leadId: number,
+    newStatus: string,
+  ) {
     try {
-      const response = await fetch(`/api/leads/${leadId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await fetch(
+        `/api/leads/${leadId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            status: newStatus,
+          }),
         },
-        body: JSON.stringify({
-          status: newStatus,
-        }),
-      });
+      );
 
       if (!response.ok) {
         throw new Error("Failed to update status");
@@ -292,6 +378,8 @@ export default function DashboardPage() {
             : lead,
         ),
       );
+
+      await loadLeads(page, true);
     } catch (err) {
       console.error(err);
       setError("Failed to update lead status.");
@@ -310,15 +398,18 @@ export default function DashboardPage() {
     try {
       setError("");
 
-      const response = await fetch(`/api/leads/${id}`, {
-        method: "DELETE",
-      });
+      const response = await fetch(
+        `/api/leads/${id}`,
+        {
+          method: "DELETE",
+        },
+      );
 
       if (!response.ok) {
         throw new Error("Failed to delete lead");
       }
 
-      await loadLeads(page);
+      await loadLeads(page, true);
     } catch (err) {
       console.error(err);
       setError("Failed to delete lead.");
@@ -353,16 +444,7 @@ export default function DashboardPage() {
 
   function handleSearch() {
     setPage(1);
-    loadLeads(1);
   }
-
-  const newCount = leads.filter((lead) => lead.status === "new").length;
-  const interestedCount = leads.filter(
-    (lead) => lead.status === "interested",
-  ).length;
-  const convertedCount = leads.filter(
-    (lead) => lead.status === "converted",
-  ).length;
 
   if (sessionLoading) {
     return (
@@ -457,7 +539,6 @@ export default function DashboardPage() {
 
         {/* MAIN */}
         <main className="flex-1 min-w-0">
-          {/* TOP HEADER */}
           <header className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200">
             <div className="px-5 sm:px-8 py-4 flex items-center justify-between gap-4">
               <div>
@@ -470,12 +551,20 @@ export default function DashboardPage() {
                 </p>
               </div>
 
-              <button
-                onClick={openCreate}
-                className="shrink-0 rounded-xl bg-[#123b7a] text-white px-4 py-2.5 text-sm font-semibold hover:bg-[#0d2f63] shadow-sm"
-              >
-                + Add Lead
-              </button>
+              <div className="flex items-center gap-3">
+                {refreshing && (
+                  <span className="hidden sm:block text-xs text-slate-400">
+                    Updating...
+                  </span>
+                )}
+
+                <button
+                  onClick={openCreate}
+                  className="shrink-0 rounded-xl bg-[#123b7a] text-white px-4 py-2.5 text-sm font-semibold hover:bg-[#0d2f63] shadow-sm"
+                >
+                  + Add Lead
+                </button>
+              </div>
             </div>
           </header>
 
@@ -483,20 +572,30 @@ export default function DashboardPage() {
             {/* KPI CARDS */}
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
               <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-                <div className="text-sm text-slate-500">Total Leads</div>
-                <div className="text-3xl font-bold mt-2">{totalLeads}</div>
+                <div className="text-sm text-slate-500">
+                  Total Leads
+                </div>
+
+                <div className="text-3xl font-bold mt-2">
+                  {stats.total}
+                </div>
+
                 <div className="text-xs text-slate-400 mt-2">
-                  All leads
+                  All-time
                 </div>
               </div>
 
               <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-                <div className="text-sm text-slate-500">New Leads</div>
-                <div className="text-3xl font-bold mt-2 text-blue-700">
-                  {newCount}
+                <div className="text-sm text-slate-500">
+                  Today&apos;s Leads
                 </div>
+
+                <div className="text-3xl font-bold mt-2 text-blue-700">
+                  {stats.today}
+                </div>
+
                 <div className="text-xs text-slate-400 mt-2">
-                  On current page
+                  Received today
                 </div>
               </div>
 
@@ -504,23 +603,27 @@ export default function DashboardPage() {
                 <div className="text-sm text-slate-500">
                   Interested
                 </div>
+
                 <div className="text-3xl font-bold mt-2 text-amber-600">
-                  {interestedCount}
+                  {stats.interested}
                 </div>
+
                 <div className="text-xs text-slate-400 mt-2">
-                  On current page
+                  All-time
                 </div>
               </div>
 
               <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
                 <div className="text-sm text-slate-500">
-                  Converted
+                  Bookings
                 </div>
+
                 <div className="text-3xl font-bold mt-2 text-emerald-600">
-                  {convertedCount}
+                  {stats.bookings}
                 </div>
+
                 <div className="text-xs text-slate-400 mt-2">
-                  On current page
+                  Converted leads
                 </div>
               </div>
             </div>
@@ -535,7 +638,9 @@ export default function DashboardPage() {
 
                   <input
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) =>
+                      setSearch(e.target.value)
+                    }
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         handleSearch();
@@ -583,7 +688,10 @@ export default function DashboardPage() {
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                 <div>
-                  <h2 className="font-bold text-lg">All Leads</h2>
+                  <h2 className="font-bold text-lg">
+                    All Leads
+                  </h2>
+
                   <p className="text-xs text-slate-500 mt-1">
                     Showing {leads.length} leads
                   </p>
@@ -625,7 +733,7 @@ export default function DashboardPage() {
                   </thead>
 
                   <tbody className="divide-y divide-slate-100">
-                    {loading ? (
+                    {loading && leads.length === 0 ? (
                       <tr>
                         <td
                           colSpan={6}
@@ -640,10 +748,14 @@ export default function DashboardPage() {
                           colSpan={6}
                           className="px-5 py-14 text-center"
                         >
-                          <div className="text-3xl mb-2">◉</div>
+                          <div className="text-3xl mb-2">
+                            ◉
+                          </div>
+
                           <div className="font-semibold text-slate-700">
                             No leads found
                           </div>
+
                           <div className="text-sm text-slate-400 mt-1">
                             Try changing your search or filters.
                           </div>
@@ -705,28 +817,35 @@ export default function DashboardPage() {
                               )}`}
                             >
                               {statuses.map((item) => (
-                                <option key={item} value={item}>
+                                <option
+                                  key={item}
+                                  value={item}
+                                >
                                   {statusLabels[item]}
                                 </option>
                               ))}
                             </select>
                           </td>
 
-                          <td className="px-5 py-4 text-sm text-slate-500">
+                          <td className="px-5 py-4 text-sm text-slate-500 whitespace-nowrap">
                             {formatDate(lead.createdAt)}
                           </td>
 
                           <td className="px-5 py-4">
                             <div className="flex items-center justify-end gap-2">
                               <button
-                                onClick={() => openView(lead)}
+                                onClick={() =>
+                                  openView(lead)
+                                }
                                 className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                               >
                                 View
                               </button>
 
                               <button
-                                onClick={() => openEdit(lead)}
+                                onClick={() =>
+                                  openEdit(lead)
+                                }
                                 className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
                               >
                                 Edit
@@ -761,7 +880,9 @@ export default function DashboardPage() {
                   <button
                     disabled={page <= 1}
                     onClick={() =>
-                      setPage((current) => Math.max(1, current - 1))
+                      setPage((current) =>
+                        Math.max(1, current - 1),
+                      )
                     }
                     className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-semibold disabled:opacity-40 hover:bg-slate-50"
                   >
@@ -776,7 +897,10 @@ export default function DashboardPage() {
                     disabled={page >= totalPages}
                     onClick={() =>
                       setPage((current) =>
-                        Math.min(totalPages, current + 1),
+                        Math.min(
+                          totalPages,
+                          current + 1,
+                        ),
                       )
                     }
                     className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-semibold disabled:opacity-40 hover:bg-slate-50"
@@ -796,7 +920,10 @@ export default function DashboardPage() {
           <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl overflow-hidden">
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-bold">Lead Details</h3>
+                <h3 className="text-lg font-bold">
+                  Lead Details
+                </h3>
+
                 <p className="text-xs text-slate-500 mt-1">
                   Lead #{selectedLead.id}
                 </p>
@@ -812,36 +939,46 @@ export default function DashboardPage() {
 
             <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div>
-                <div className="text-xs text-slate-400">Name</div>
+                <div className="text-xs text-slate-400">
+                  Name
+                </div>
                 <div className="font-semibold mt-1">
                   {selectedLead.name}
                 </div>
               </div>
 
               <div>
-                <div className="text-xs text-slate-400">Phone</div>
+                <div className="text-xs text-slate-400">
+                  Phone
+                </div>
                 <div className="font-semibold mt-1">
                   {selectedLead.phone}
                 </div>
               </div>
 
               <div>
-                <div className="text-xs text-slate-400">Email</div>
+                <div className="text-xs text-slate-400">
+                  Email
+                </div>
                 <div className="font-semibold mt-1 break-all">
                   {selectedLead.email || "-"}
                 </div>
               </div>
 
               <div>
-                <div className="text-xs text-slate-400">Status</div>
+                <div className="text-xs text-slate-400">
+                  Status
+                </div>
+
                 <div className="mt-1">
                   <span
                     className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusClass(
                       selectedLead.status,
                     )}`}
                   >
-                    {statusLabels[selectedLead.status] ||
-                      selectedLead.status}
+                    {statusLabels[
+                      selectedLead.status
+                    ] || selectedLead.status}
                   </span>
                 </div>
               </div>
@@ -856,14 +993,18 @@ export default function DashboardPage() {
               </div>
 
               <div>
-                <div className="text-xs text-slate-400">Ad</div>
+                <div className="text-xs text-slate-400">
+                  Ad
+                </div>
                 <div className="font-semibold mt-1">
                   {selectedLead.ad || "-"}
                 </div>
               </div>
 
               <div>
-                <div className="text-xs text-slate-400">Form</div>
+                <div className="text-xs text-slate-400">
+                  Form
+                </div>
                 <div className="font-semibold mt-1">
                   {selectedLead.form || "-"}
                 </div>
@@ -897,7 +1038,10 @@ export default function DashboardPage() {
           <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl overflow-hidden">
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-bold">Add Lead</h3>
+                <h3 className="text-lg font-bold">
+                  Add Lead
+                </h3>
+
                 <p className="text-xs text-slate-500 mt-1">
                   Create a new lead manually
                 </p>
@@ -918,7 +1062,10 @@ export default function DashboardPage() {
                   required
                   value={form.name}
                   onChange={(value) =>
-                    setForm({ ...form, name: value })
+                    setForm({
+                      ...form,
+                      name: value,
+                    })
                   }
                 />
 
@@ -927,7 +1074,10 @@ export default function DashboardPage() {
                   required
                   value={form.phone}
                   onChange={(value) =>
-                    setForm({ ...form, phone: value })
+                    setForm({
+                      ...form,
+                      phone: value,
+                    })
                   }
                 />
 
@@ -936,7 +1086,10 @@ export default function DashboardPage() {
                   type="email"
                   value={form.email}
                   onChange={(value) =>
-                    setForm({ ...form, email: value })
+                    setForm({
+                      ...form,
+                      email: value,
+                    })
                   }
                 />
 
@@ -944,7 +1097,10 @@ export default function DashboardPage() {
                   label="Campaign"
                   value={form.campaign}
                   onChange={(value) =>
-                    setForm({ ...form, campaign: value })
+                    setForm({
+                      ...form,
+                      campaign: value,
+                    })
                   }
                 />
 
@@ -952,7 +1108,10 @@ export default function DashboardPage() {
                   label="Ad"
                   value={form.ad}
                   onChange={(value) =>
-                    setForm({ ...form, ad: value })
+                    setForm({
+                      ...form,
+                      ad: value,
+                    })
                   }
                 />
 
@@ -960,7 +1119,10 @@ export default function DashboardPage() {
                   label="Form"
                   value={form.form}
                   onChange={(value) =>
-                    setForm({ ...form, form: value })
+                    setForm({
+                      ...form,
+                      form: value,
+                    })
                   }
                 />
 
@@ -991,7 +1153,9 @@ export default function DashboardPage() {
               <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowCreate(false)}
+                  onClick={() =>
+                    setShowCreate(false)
+                  }
                   className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600"
                 >
                   Cancel
@@ -1002,7 +1166,9 @@ export default function DashboardPage() {
                   disabled={saving}
                   className="rounded-xl bg-[#123b7a] text-white px-5 py-2.5 text-sm font-semibold disabled:opacity-50"
                 >
-                  {saving ? "Saving..." : "Create Lead"}
+                  {saving
+                    ? "Saving..."
+                    : "Create Lead"}
                 </button>
               </div>
             </form>
@@ -1016,7 +1182,10 @@ export default function DashboardPage() {
           <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl overflow-hidden">
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-bold">Edit Lead</h3>
+                <h3 className="text-lg font-bold">
+                  Edit Lead
+                </h3>
+
                 <p className="text-xs text-slate-500 mt-1">
                   Update lead information
                 </p>
@@ -1037,7 +1206,10 @@ export default function DashboardPage() {
                   required
                   value={form.name}
                   onChange={(value) =>
-                    setForm({ ...form, name: value })
+                    setForm({
+                      ...form,
+                      name: value,
+                    })
                   }
                 />
 
@@ -1046,7 +1218,10 @@ export default function DashboardPage() {
                   required
                   value={form.phone}
                   onChange={(value) =>
-                    setForm({ ...form, phone: value })
+                    setForm({
+                      ...form,
+                      phone: value,
+                    })
                   }
                 />
 
@@ -1055,7 +1230,10 @@ export default function DashboardPage() {
                   type="email"
                   value={form.email}
                   onChange={(value) =>
-                    setForm({ ...form, email: value })
+                    setForm({
+                      ...form,
+                      email: value,
+                    })
                   }
                 />
 
@@ -1063,7 +1241,10 @@ export default function DashboardPage() {
                   label="Campaign"
                   value={form.campaign}
                   onChange={(value) =>
-                    setForm({ ...form, campaign: value })
+                    setForm({
+                      ...form,
+                      campaign: value,
+                    })
                   }
                 />
 
@@ -1071,7 +1252,10 @@ export default function DashboardPage() {
                   label="Ad"
                   value={form.ad}
                   onChange={(value) =>
-                    setForm({ ...form, ad: value })
+                    setForm({
+                      ...form,
+                      ad: value,
+                    })
                   }
                 />
 
@@ -1079,7 +1263,10 @@ export default function DashboardPage() {
                   label="Form"
                   value={form.form}
                   onChange={(value) =>
-                    setForm({ ...form, form: value })
+                    setForm({
+                      ...form,
+                      form: value,
+                    })
                   }
                 />
 
@@ -1110,7 +1297,9 @@ export default function DashboardPage() {
               <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowEdit(false)}
+                  onClick={() =>
+                    setShowEdit(false)
+                  }
                   className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600"
                 >
                   Cancel
@@ -1121,7 +1310,9 @@ export default function DashboardPage() {
                   disabled={saving}
                   className="rounded-xl bg-[#123b7a] text-white px-5 py-2.5 text-sm font-semibold disabled:opacity-50"
                 >
-                  {saving ? "Saving..." : "Save Changes"}
+                  {saving
+                    ? "Saving..."
+                    : "Save Changes"}
                 </button>
               </div>
             </form>
@@ -1149,14 +1340,20 @@ function InputField({
     <div>
       <label className="block text-xs font-semibold text-slate-600 mb-2">
         {label}
-        {required && <span className="text-red-500 ml-1">*</span>}
+        {required && (
+          <span className="text-red-500 ml-1">
+            *
+          </span>
+        )}
       </label>
 
       <input
         type={type}
         required={required}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) =>
+          onChange(e.target.value)
+        }
         className="w-full h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-50"
       />
     </div>
