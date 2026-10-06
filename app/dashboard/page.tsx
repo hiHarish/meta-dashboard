@@ -489,7 +489,7 @@ export default function DashboardPage() {
 
             {role === "admin" && (
               <a
-                href="/users"
+                href="dashboard/users"
                 className="flex items-center gap-3 px-3 py-2.5 mt-1 rounded-xl text-slate-600 hover:bg-slate-50"
               >
                 <span className="text-lg">♙</span>
