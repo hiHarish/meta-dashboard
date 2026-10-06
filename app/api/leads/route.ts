@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, ilike, or, count } from "drizzle-orm";
+import { and, count, desc, eq, gte, ilike, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -82,18 +82,8 @@ export async function GET(request: Request) {
 
     const conditions = [];
 
-    /*
-     * IMPORTANT:
-     * All roles can see ALL leads.
-     *
-     * There is intentionally NO:
-     *
-     * if (role === "telecaller") {
-     *   conditions.push(eq(leads.assignedTo, session.user.id));
-     * }
-     *
-     * Assignment can be enabled later.
-     */
+    // All roles can see all leads.
+    // No telecaller assignedTo restriction.
 
     if (status && allowedStatuses.includes(status as never)) {
       conditions.push(eq(leads.status, status));
@@ -114,22 +104,112 @@ export async function GET(request: Request) {
     const whereClause =
       conditions.length > 0 ? and(...conditions) : undefined;
 
-    const [result, totalResult] = await Promise.all([
-      db
-        .select()
-        .from(leads)
-        .where(whereClause)
-        .orderBy(desc(leads.createdAt))
-        .limit(limit)
-        .offset(offset),
+    /*
+     * India timezone boundaries for today.
+     */
+    const indiaDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
 
-      db
-        .select({ count: count() })
-        .from(leads)
-        .where(whereClause),
-    ]);
+    const todayStart = new Date(
+      `${indiaDate}T00:00:00+05:30`,
+    );
+
+    const tomorrow = new Date(todayStart);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+
+    /*
+     * Main leads query.
+     */
+    const result = await db
+      .select()
+      .from(leads)
+      .where(whereClause)
+      .orderBy(desc(leads.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    /*
+     * Overall total.
+     */
+    const totalResult = await db
+      .select({ count: count() })
+      .from(leads)
+      .where(whereClause);
+
+    /*
+     * Today's leads.
+     * This respects the current search/filter.
+     */
+    const todayConditions = [
+      gte(leads.createdAt, todayStart),
+      lt(leads.createdAt, tomorrow),
+      ...conditions,
+    ];
+
+    const todayResult = await db
+      .select({ count: count() })
+      .from(leads)
+      .where(and(...todayConditions));
+
+    /*
+     * Overall interested leads.
+     */
+    const interestedConditions = [
+      eq(leads.status, "interested"),
+      ...(search
+        ? [
+            or(
+              ilike(leads.name, `%${search}%`),
+              ilike(leads.phone, `%${search}%`),
+              ilike(leads.email, `%${search}%`),
+              ilike(leads.campaign, `%${search}%`),
+              ilike(leads.ad, `%${search}%`),
+            ),
+          ]
+        : []),
+    ];
+
+    const interestedResult = await db
+      .select({ count: count() })
+      .from(leads)
+      .where(and(...interestedConditions));
+
+    /*
+     * Overall bookings.
+     * "converted" = Booking.
+     */
+    const bookingConditions = [
+      eq(leads.status, "converted"),
+      ...(search
+        ? [
+            or(
+              ilike(leads.name, `%${search}%`),
+              ilike(leads.phone, `%${search}%`),
+              ilike(leads.email, `%${search}%`),
+              ilike(leads.campaign, `%${search}%`),
+              ilike(leads.ad, `%${search}%`),
+            ),
+          ]
+        : []),
+    ];
+
+    const bookingResult = await db
+      .select({ count: count() })
+      .from(leads)
+      .where(and(...bookingConditions));
 
     const total = Number(totalResult[0]?.count || 0);
+    const todayCount = Number(todayResult[0]?.count || 0);
+    const interestedCount = Number(
+      interestedResult[0]?.count || 0,
+    );
+    const bookingCount = Number(
+      bookingResult[0]?.count || 0,
+    );
 
     const totalPages = Math.max(
       1,
@@ -143,6 +223,13 @@ export async function GET(request: Request) {
       count: result.length,
       total,
       totalPages,
+
+      stats: {
+        total,
+        today: todayCount,
+        interested: interestedCount,
+        bookings: bookingCount,
+      },
     });
   } catch (error) {
     console.error("GET /api/leads error:", error);
@@ -165,10 +252,6 @@ export async function POST(request: Request) {
       );
     }
 
-    /*
-     * Telecallers cannot create leads.
-     * Admin and manager can create leads.
-     */
     if (
       session.user.role !== "admin" &&
       session.user.role !== "manager"
