@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, eq, ilike, or, count } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -8,7 +8,9 @@ import { getCurrentSession } from "@/lib/require-auth";
 
 const leadSchema = z.object({
   name: z.string().trim().min(2).max(255),
-  phone: z.string().trim().min(7).max(30),
+
+  phone: z.string().trim().min(7).max(255),
+
   email: z
     .string()
     .trim()
@@ -18,7 +20,9 @@ const leadSchema = z.object({
     .or(z.literal("")),
 
   campaign: z.string().trim().max(255).optional().or(z.literal("")),
+
   ad: z.string().trim().max(255).optional().or(z.literal("")),
+
   form: z.string().trim().max(255).optional().or(z.literal("")),
 
   status: z
@@ -59,8 +63,6 @@ export async function GET(request: Request) {
       );
     }
 
-    const role = session.user.role;
-
     const { searchParams } = new URL(request.url);
 
     const page = Math.max(
@@ -80,9 +82,18 @@ export async function GET(request: Request) {
 
     const conditions = [];
 
-    if (role === "telecaller") {
-      conditions.push(eq(leads.assignedTo, session.user.id));
-    }
+    /*
+     * IMPORTANT:
+     * All roles can see ALL leads.
+     *
+     * There is intentionally NO:
+     *
+     * if (role === "telecaller") {
+     *   conditions.push(eq(leads.assignedTo, session.user.id));
+     * }
+     *
+     * Assignment can be enabled later.
+     */
 
     if (status && allowedStatuses.includes(status as never)) {
       conditions.push(eq(leads.status, status));
@@ -95,6 +106,7 @@ export async function GET(request: Request) {
           ilike(leads.phone, `%${search}%`),
           ilike(leads.email, `%${search}%`),
           ilike(leads.campaign, `%${search}%`),
+          ilike(leads.ad, `%${search}%`),
         ),
       );
     }
@@ -102,19 +114,35 @@ export async function GET(request: Request) {
     const whereClause =
       conditions.length > 0 ? and(...conditions) : undefined;
 
-    const result = await db
-      .select()
-      .from(leads)
-      .where(whereClause)
-      .orderBy(desc(leads.createdAt))
-      .limit(limit)
-      .offset(offset);
+    const [result, totalResult] = await Promise.all([
+      db
+        .select()
+        .from(leads)
+        .where(whereClause)
+        .orderBy(desc(leads.createdAt))
+        .limit(limit)
+        .offset(offset),
+
+      db
+        .select({ count: count() })
+        .from(leads)
+        .where(whereClause),
+    ]);
+
+    const total = Number(totalResult[0]?.count || 0);
+
+    const totalPages = Math.max(
+      1,
+      Math.ceil(total / limit),
+    );
 
     return NextResponse.json({
       leads: result,
       page,
       limit,
       count: result.length,
+      total,
+      totalPages,
     });
   } catch (error) {
     console.error("GET /api/leads error:", error);
@@ -137,6 +165,10 @@ export async function POST(request: Request) {
       );
     }
 
+    /*
+     * Telecallers cannot create leads.
+     * Admin and manager can create leads.
+     */
     if (
       session.user.role !== "admin" &&
       session.user.role !== "manager"
