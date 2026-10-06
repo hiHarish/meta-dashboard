@@ -85,7 +85,7 @@ export async function POST(request: Request) {
          * Fetch actual lead information from Meta
          */
         const metaResponse = await fetch(
-          `https://graph.facebook.com/v24.0/${leadgenId}?fields=id,created_time,field_data,form_id,ad_id,campaign_id&access_token=${encodeURIComponent(
+          `https://graph.facebook.com/v26.0/${leadgenId}?fields=id,created_time,field_data,form_id,ad_id,campaign_id&access_token=${encodeURIComponent(
             PAGE_ACCESS_TOKEN,
           )}`,
           {
