@@ -60,7 +60,8 @@ A central interface for authorised users to access and manage collected leads.
 Core lead management capabilities may include:
 
 - View and monitor leads.
-- Perform CRUD operations on leads
+- Perform CRUD operations in dashboard
+- Role based architecture
 - Search and filter lead records.
 - Track lead status.
 - Manage lead assignments.
@@ -137,92 +138,69 @@ Conceptually, the data flow is:
 *The exact implementation of each layer depends on the configured API routes, database and integrations.*
 
 ---
-4. Technology Stack
+
+## 4. Technology Stack
 
 The project uses the following technology categories:
 
-Technology
+| Technology | Purpose |
+|---|---|
+| Next.js | Full-stack application framework |
+| React.js | Component-based user interface |
+| TypeScript | Type safety and maintainability |
+| Node.js | JavaScript runtime for server-side execution |
+| API Routes / Route Handlers | Backend request handling |
+| Database | Persistent lead and application data storage |
+| Vercel | Application hosting and deployment |
+| Git & GitHub | Source code management and version control |
 
-Purpose
+*Confirm the actual database, authentication library and other dependencies against the project configuration.*
 
-Next.js
+---
 
-Full-stack application framework
-
-React.js
-
-Component-based user interface
-
-TypeScript
-
-Type safety and maintainability
-
-Node.js
-
-JavaScript runtime for server-side execution
-
-API Routes / Route Handlers
-
-Backend request handling
-
-Database
-
-Persistent lead and application data storage
-
-Vercel
-
-Application hosting and deployment
-
-Git & GitHub
-
-Source code management and version control
-
-Confirm the actual database, authentication library and other dependencies against the project configuration.
-
-5. Data Flow
+## 5. Data Flow
 
 A typical lead management workflow follows these stages:
 
-A potential customer submits an enquiry through the NDC website or an integrated marketing platform.
-
-The lead information is collected from the respective source.
-
-The backend receives and processes the incoming data.
-
-The lead is validated and stored in the centralised data system.
-
-The dashboard retrieves and displays the available lead information.
-
-Authorised users can manage, track and update lead records.
-
-Lead information can be used for operational monitoring and marketing analysis.
+1. A potential customer submits an enquiry through the NDC website or an integrated marketing platform.
+2. The lead information is collected from the respective source.
+3. The backend receives and processes the incoming data.
+4. The lead is validated and stored in the centralised data system.
+5. The dashboard retrieves and displays the available lead information.
+6. Authorised users can manage, track and update lead records.
+7. Lead information can be used for operational monitoring and marketing analysis.
 
 This workflow aims to provide a consistent lead management experience across multiple acquisition channels.
 
-6. Project Setup
+---
 
-Prerequisites
+## 6. Project Setup
 
-Node.js (LTS recommended)
+### Prerequisites
 
-npm, yarn, pnpm or bun
+- Node.js (LTS recommended)
+- npm, yarn, pnpm or bun
+- Git
 
-Git
+### Clone the Repository
 
-Clone the Repository
-
+```bash
 git clone https://github.com/hiHarish/meta-dashboard.git
 
 cd meta-dashboard
+```
 
-Install Dependencies
+### Install Dependencies
 
+```bash
 npm install
+```
 
-Configure Environment Variables
+### Configure Environment Variables
 
-Create a .env.local file in the project root.
+Create a `.env.local` file in the project root.
 
+```env
 # Add the environment variables required by the application
 
 # Database connection
@@ -235,163 +213,128 @@ Create a .env.local file in the project root.
 # META_ACCESS_TOKEN=
 # META_APP_ID=
 # META_APP_SECRET=
+```
 
 Use the actual variable names and values required by your application. Never commit credentials, access tokens or secrets to GitHub.
 
-Run Development Server
+### Run Development Server
 
+```bash
 npm run dev
+```
 
 Open:
 
 http://localhost:3000
 
-Production Build
+### Production Build
 
+```bash
 npm run build
+```
 
-Start Production Server
+### Start Production Server
 
+```bash
 npm start
+```
 
-7. Deployment
+---
+
+## 7. Deployment
 
 The application is deployed on Vercel.
 
-Live URL: https://meta-dashboard-theta.vercel.app/
+**Live URL:** https://meta-dashboard-theta.vercel.app/
 
-Vercel Deployment Workflow
+### Vercel Deployment Workflow
 
-Push the latest source code to GitHub.
+1. Push the latest source code to GitHub.
+2. Import the repository into Vercel.
+3. Configure the required environment variables.
+4. Configure the production branch.
+5. Deploy the application.
+6. Verify the application and its backend integrations.
 
-Import the repository into Vercel.
-
-Configure the required environment variables.
-
-Configure the production branch.
-
-Deploy the application.
-
-Verify the application and its backend integrations.
-
-Alternative Hosting
+### Alternative Hosting
 
 The Next.js application can also be deployed on other Node.js-compatible hosting environments.
 
-Hostinger VPS
+**Hostinger VPS**
+- Install Node.js.
+- Clone the repository.
+- Configure environment variables.
+- Build and run the Next.js application.
+- Use PM2 for process management.
+- Configure Nginx and SSL.
 
-Install Node.js.
-
-Clone the repository.
-
-Configure environment variables.
-
-Build and run the Next.js application.
-
-Use PM2 for process management.
-
-Configure Nginx and SSL.
-
-AWS
-
-Deploy through EC2 or a suitable managed application hosting service.
-
-Configure application runtime and environment variables.
-
-Connect the required database.
-
-Configure networking, security and domain settings.
+**AWS**
+- Deploy through EC2 or a suitable managed application hosting service.
+- Configure application runtime and environment variables.
+- Connect the required database.
+- Configure networking, security and domain settings.
 
 The database and external integrations must also be configured independently when migrating hosting providers.
 
-8. Security Considerations
+---
 
-Keep API credentials and environment variables secure.
+## 8. Security Considerations
 
-Restrict dashboard access to authorised users.
+- Keep API credentials and environment variables secure.
+- Restrict dashboard access to authorised users.
+- Validate incoming lead data on the server.
+- Protect backend endpoints against unauthorised access.
+- Avoid exposing sensitive customer information.
+- Use HTTPS for application communication.
+- Follow appropriate data privacy and retention practices.
 
-Validate incoming lead data on the server.
+---
 
-Protect backend endpoints against unauthorised access.
-
-Avoid exposing sensitive customer information.
-
-Use HTTPS for application communication.
-
-Follow appropriate data privacy and retention practices.
-
-9. Future Enhancements
+## 9. Future Enhancements
 
 The platform can be extended into a more comprehensive CRM and marketing automation ecosystem.
 
 Potential enhancements include:
 
-Automated lead assignment based on clinic location.
+- Automated lead assignment based on clinic location.
+- WhatsApp and SMS communication integrations.
+- Automated follow-up reminders.
+- Lead quality scoring and prioritisation.
+- Real-time dashboard analytics.
+- Advanced campaign and conversion reporting.
+- AI-powered lead classification.
+- Integration with telecalling systems.
+- Multi-branch clinic performance monitoring.
+- Automated lead nurturing workflows.
 
-WhatsApp and SMS communication integrations.
+---
 
-Automated follow-up reminders.
-
-Lead quality scoring and prioritisation.
-
-Real-time dashboard analytics.
-
-Advanced campaign and conversion reporting.
-
-AI-powered lead classification.
-
-Integration with telecalling systems.
-
-Multi-branch clinic performance monitoring.
-
-Automated lead nurturing workflows.
-
-10. Project Impact
+## 10. Project Impact
 
 The centralised platform aims to solve the operational challenges associated with fragmented lead management.
 
 By bringing website enquiries and marketing-generated leads into one system, NDC can work towards:
 
-Better visibility of incoming leads.
+- Better visibility of incoming leads.
+- More organised lead management.
+- Improved tracking and accountability.
+- Reduced manual coordination.
+- Better understanding of marketing performance.
+- A scalable foundation for CRM and automation.
 
-More organised lead management.
+---
 
-Improved tracking and accountability.
+## 11. Project Information
 
-Reduced manual coordination.
+| Field | Details |
+|---|---|
+| Project | NDC Centralised Lead Management System |
+| Organisation | National Dental Care |
+| Category | Full-Stack Web Application |
+| Framework | Next.js |
+| Repository | [GitHub](https://github.com/hiHarish/meta-dashboard) |
+| Deployment | [Vercel](https://meta-dashboard-theta.vercel.app/) |
 
-Better understanding of marketing performance.
+---
 
-A scalable foundation for CRM and automation.
-
-11. Project Information
-
-Field
-
-Details
-
-Project
-
-NDC Centralised Lead Management System
-
-Organisation
-
-National Dental Care
-
-Category
-
-Full-Stack Web Application
-
-Framework
-
-Next.js
-
-Repository
-
-GitHub
-
-Deployment
-
-Vercel
-
-Developed to create a unified lead management ecosystem for National Dental Care.
+**Developed to create a unified lead management ecosystem for National Dental Care.**
